@@ -40,6 +40,7 @@ impl ListOfScores {
             self.scores_list.push(n);
         }
         self.sort_scores();
+        self.save_scores().unwrap();
     }
     fn reset_scores_list(&mut self) {
         let tom: Score = Score {
@@ -94,10 +95,21 @@ impl ListOfScores {
             .create(true)
             .open("highscores.json")?;
 
-        serde_json::to_writer_pretty(file, &self)?;
+        serde_json::to_writer_pretty(file, &self.scores_list)?;
         Ok(())
     }
-    fn load_scores(&self) {}
+
+    fn load_scores(&mut self) -> std::io::Result<()> {
+        if !std::path::Path::new("highscores.json").exists() {
+            self.reset_scores_list();
+            self.save_scores()?;
+        } else {
+            let file = std::fs::File::open("highscores.json")?;
+            let sco: Vec<Score> = serde_json::from_reader(&file)?;
+            self.scores_list = sco;
+        }
+        Ok(())
+    }
 }
 
 struct Fruit {
@@ -277,8 +289,10 @@ async fn main() {
     let mut scores: ListOfScores = ListOfScores {
         scores_list: Vec::new(),
     };
-    scores.reset_scores_list();
-    scores.save_scores();
+    match scores.load_scores() {
+        Ok(()) => println!("Onnistu"),
+        Err(e) => println!("Error loading {}", e),
+    }
     let mut fruit: Fruit;
     let mut snake: Snake;
     (snake, fruit) = new_game();
