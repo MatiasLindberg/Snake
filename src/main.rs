@@ -1,4 +1,6 @@
 use macroquad::prelude::*;
+use macroquad::rand::ChooseRandom;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 const SIZE: usize = 32;
@@ -6,6 +8,7 @@ const CELL: f32 = 20.0;
 const OFFSET_Y: f32 = 60.0;
 const OFFSET_X: f32 = 40.0;
 type Point = (usize, usize);
+type DrawPoint = (f32, f32);
 
 #[derive(PartialEq)]
 enum Direction {
@@ -14,10 +17,87 @@ enum Direction {
     LEFT,
     RIGHT,
 }
-
-struct ScoreSnake {
+#[derive(Clone, Serialize, Deserialize)]
+struct Score {
+    name: String,
     points: usize,
     moves: Vec<Point>,
+}
+#[derive(Serialize, Deserialize)]
+struct ListOfScores {
+    scores_list: Vec<Score>,
+}
+
+impl ListOfScores {
+    fn sort_scores(&mut self) {
+        self.scores_list.sort_by(|a, b| b.points.cmp(&a.points));
+    }
+
+    fn new_score(&mut self, s: &Snake) {
+        if s.pts >= self.scores_list.last().unwrap().points {
+            self.scores_list.pop();
+            let n = s.record();
+            self.scores_list.push(n);
+        }
+        self.sort_scores();
+    }
+    fn reset_scores_list(&mut self) {
+        let tom: Score = Score {
+            name: "Tom".to_string(),
+            points: 250,
+            moves: Vec::new(),
+        };
+        let tim: Score = Score {
+            name: "Tim".to_string(),
+            points: 200,
+            moves: Vec::new(),
+        };
+        let jim: Score = Score {
+            name: "Jim".to_string(),
+            points: 150,
+            moves: Vec::new(),
+        };
+        let kim: Score = Score {
+            name: "Kim".to_string(),
+            points: 50,
+            moves: Vec::new(),
+        };
+        let dim: Score = Score {
+            name: "Dim".to_string(),
+            points: 10,
+            moves: Vec::new(),
+        };
+        self.scores_list = vec![tom, tim, jim, kim, dim];
+    }
+
+    fn draw_highscore(&self) {
+        draw_rectangle(
+            OFFSET_X + 50.0,
+            OFFSET_Y + 50.0,
+            720.0 - 2.0 * OFFSET_X - 100.0,
+            720.0 - 2.0 * OFFSET_X - 100.0,
+            DARKGRAY,
+        );
+
+        let text_start = OFFSET_X + 120.0;
+        let mut text_line = OFFSET_Y + 120.0;
+        for score in &self.scores_list {
+            let txt = format!("{}    {}", score.name, score.points);
+            draw_text(&txt, text_start, text_line, 80.0, RED);
+            text_line += 100.0;
+        }
+    }
+    fn save_scores(&self) -> std::io::Result<()> {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open("highscores.json")?;
+
+        serde_json::to_writer_pretty(file, &self)?;
+        Ok(())
+    }
+    fn load_scores(&self) {}
 }
 
 struct Fruit {
@@ -43,6 +123,7 @@ impl Fruit {
 }
 
 struct Snake {
+    name: String,
     snake: VecDeque<Point>,
     head: Point,
     dir: Direction,
@@ -51,6 +132,13 @@ struct Snake {
 }
 
 impl Snake {
+    fn record(&self) -> Score {
+        Score {
+            name: self.name.clone(),
+            points: self.pts.clone(),
+            moves: self.moves.clone(),
+        }
+    }
     fn turn_snake(&mut self, new_dir: Direction) {
         if (self.dir == new_dir || self.dir == Direction::LEFT && new_dir == Direction::RIGHT)
             || (self.dir == Direction::UP && new_dir == Direction::DOWN)
@@ -104,8 +192,8 @@ impl Snake {
 }
 
 struct Line {
-    start: (f32, f32),
-    end: (f32, f32),
+    start: DrawPoint,
+    end: DrawPoint,
 }
 
 fn build_grid() -> Vec<Line> {
@@ -136,6 +224,28 @@ fn draw_pause() {
     draw_text("Press enter to continue!", 100.0, 300.0, 50.0, WHITE);
 }
 
+fn eat_fruit(snake: &mut Snake, fruit: &mut Fruit) {
+    snake.add_points(&fruit.pts);
+
+    let range: Vec<_> = (0..SIZE).collect();
+    'nxt_fruit: loop {
+        let next_y = range.choose();
+        let next_x = range.choose();
+        match (next_y, next_x) {
+            (Some(&y), Some(&x)) => {
+                if !snake.snake.contains(&(y, x)) {
+                    fruit.change_position((y, x));
+                    break 'nxt_fruit;
+                }
+            }
+            _ => println!("ERROR in num gen!"),
+        }
+    }
+    if snake.pts >= 20 * fruit.pts {
+        fruit.change_points(fruit.pts + 5);
+    }
+}
+
 fn new_game() -> (Snake, Fruit) {
     let fruit: Fruit = Fruit {
         pos: (10, 16),
@@ -144,6 +254,7 @@ fn new_game() -> (Snake, Fruit) {
     };
 
     let snake: Snake = Snake {
+        name: "Matias".to_string(),
         snake: VecDeque::from(vec![(28, 16), (29, 16), (30, 16)]),
         head: (28, 16),
         dir: Direction::UP,
@@ -161,7 +272,13 @@ async fn main() {
 
     let mut start: bool = true;
     let mut pause: bool = false;
+    let mut highscore: bool = false;
 
+    let mut scores: ListOfScores = ListOfScores {
+        scores_list: Vec::new(),
+    };
+    scores.reset_scores_list();
+    scores.save_scores();
     let mut fruit: Fruit;
     let mut snake: Snake;
     (snake, fruit) = new_game();
@@ -169,11 +286,22 @@ async fn main() {
     let grid: Vec<Line> = build_grid();
 
     loop {
+        clear_background(BLACK);
+        draw_grid(&grid);
+        let txt = format!("Points: {}", snake.pts);
+        draw_text(&txt, 270.0, 40.0, 50.0, BLUE);
+        snake.draw_snake();
+        fruit.draw_fruit();
+
         if start {
             if is_key_pressed(KeyCode::Enter) {
                 start = false;
                 (snake, fruit) = new_game();
             }
+        } else if is_key_down(KeyCode::Tab) {
+            highscore = true;
+        } else if is_key_released(KeyCode::Tab) {
+            highscore = false;
         } else if pause {
             if is_key_pressed(KeyCode::Enter) {
                 pause = false;
@@ -197,12 +325,12 @@ async fn main() {
                 match snake.move_snake() {
                     None => {
                         println!("Game ended. Your points were {}.", snake.pts);
+                        scores.new_score(&snake);
                         start = true;
                     }
                     Some(_x) => {
                         if snake.head == fruit.pos {
-                            snake.add_points(&fruit.pts);
-                            fruit.change_position((16, 16));
+                            eat_fruit(&mut snake, &mut fruit);
                         } else {
                             snake.snake.pop_back();
                         }
@@ -211,18 +339,14 @@ async fn main() {
             }
         }
 
-        clear_background(BLACK);
-        draw_grid(&grid);
-        let txt = format!("Points: {}", snake.pts);
-        draw_text(&txt, 270.0, 40.0, 50.0, BLUE);
-        snake.draw_snake();
-        fruit.draw_fruit();
-
         if start {
             draw_start();
         } else if pause {
             draw_pause();
+        } else if highscore {
+            scores.draw_highscore();
         }
+
         next_frame().await
     }
 }
