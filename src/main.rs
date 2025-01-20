@@ -258,7 +258,81 @@ fn eat_fruit(snake: &mut Snake, fruit: &mut Fruit) {
     }
 }
 
-fn new_game() -> (Snake, Fruit) {
+async fn main_menu() -> String {
+    let mut new_name = String::new();
+    let grid: Vec<Line> = build_grid();
+    let mut active: bool = true;
+
+    let box_width = 720.0 - 2.0 * OFFSET_X - 200.0;
+    let box_hight = 720.0 - 2.0 * OFFSET_X - 500.0;
+    let box_x = OFFSET_X + 100.0;
+    let box_y = OFFSET_Y + 150.0;
+    loop {
+        clear_background(BLACK);
+        draw_grid(&grid);
+        {
+            draw_rectangle(
+                OFFSET_X + 50.0,
+                OFFSET_Y + 50.0,
+                720.0 - 2.0 * OFFSET_X - 100.0,
+                720.0 - 2.0 * OFFSET_X - 100.0,
+                DARKGRAY,
+            );
+            if active {
+                draw_rectangle(box_x, box_y, box_width, box_hight, DARKGREEN);
+                draw_rectangle(box_x, box_y + 200.0, box_width, box_hight, DARKBLUE);
+            } else {
+                draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
+                draw_rectangle(box_x, box_y + 200.0, box_width, box_hight, DARKGREEN);
+            }
+        }
+
+        if let Some(key) = get_char_pressed() {
+            if key.is_alphabetic() && new_name.len() < 11 {
+                new_name.push(key);
+            }
+        }
+        if is_key_pressed(KeyCode::Backspace) {
+            new_name.pop();
+        }
+        if new_name.is_empty() {
+            draw_text(
+                "Name",
+                OFFSET_X + 300.0 - 4.0 * 15.0,
+                OFFSET_Y + 240.0,
+                80.0,
+                RED,
+            );
+        } else {
+            draw_text(
+                &new_name,
+                OFFSET_X + 300.0 - new_name.len() as f32 * 15.0,
+                OFFSET_Y + 240.0,
+                80.0,
+                RED,
+            );
+        }
+
+        draw_text("Highscores", OFFSET_X + 150.0, OFFSET_Y + 440.0, 80.0, RED);
+
+        if is_key_pressed(KeyCode::Enter) {
+            if active {
+                break;
+            } else {
+                println!("highscores");
+            }
+        } else if is_key_pressed(KeyCode::Escape) {
+            break;
+        } else if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::Down) {
+            active = !active;
+        }
+        next_frame().await
+    }
+    new_name
+}
+
+async fn new_game() -> (Snake, Fruit) {
+    let new_name: String = main_menu().await;
     let fruit: Fruit = Fruit {
         pos: (10, 16),
         draw_pos: (OFFSET_X + CELL * 16.0, OFFSET_Y + CELL * 10.0),
@@ -266,7 +340,7 @@ fn new_game() -> (Snake, Fruit) {
     };
 
     let snake: Snake = Snake {
-        name: "Matias".to_string(),
+        name: new_name,
         snake: VecDeque::from(vec![(28, 16), (29, 16), (30, 16)]),
         head: (28, 16),
         dir: Direction::UP,
@@ -295,7 +369,7 @@ async fn main() {
     }
     let mut fruit: Fruit;
     let mut snake: Snake;
-    (snake, fruit) = new_game();
+    (snake, fruit) = new_game().await;
 
     let grid: Vec<Line> = build_grid();
 
@@ -310,7 +384,7 @@ async fn main() {
         if start {
             if is_key_pressed(KeyCode::Enter) {
                 start = false;
-                (snake, fruit) = new_game();
+                (snake, fruit) = new_game().await;
             }
         } else if is_key_down(KeyCode::Tab) {
             highscore = true;
