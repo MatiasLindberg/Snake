@@ -85,7 +85,7 @@ impl ListOfScores {
         for score in &self.scores_list {
             let txt = format!("{}    {}", score.name, score.points);
             draw_text(&txt, text_start, text_line, 80.0, RED);
-            text_line += 100.0;
+            text_line += 90.0;
         }
     }
     fn save_scores(&self) -> std::io::Result<()> {
@@ -93,18 +93,18 @@ impl ListOfScores {
             .write(true)
             .truncate(true)
             .create(true)
-            .open("highscores.json")?;
+            .open("Highscores.json")?;
 
         serde_json::to_writer_pretty(file, &self.scores_list)?;
         Ok(())
     }
 
     fn load_scores(&mut self) -> std::io::Result<()> {
-        if !std::path::Path::new("highscores.json").exists() {
+        if !std::path::Path::new("Highscores.json").exists() {
             self.reset_scores_list();
             self.save_scores()?;
         } else {
-            let file = std::fs::File::open("highscores.json")?;
+            let file = std::fs::File::open("Highscores.json")?;
             let sco: Vec<Score> = serde_json::from_reader(&file)?;
             self.scores_list = sco;
         }
@@ -152,16 +152,33 @@ impl Snake {
         }
     }
     fn turn_snake(&mut self, new_dir: Direction) {
-        if (self.dir == new_dir || self.dir == Direction::LEFT && new_dir == Direction::RIGHT)
-            || (self.dir == Direction::UP && new_dir == Direction::DOWN)
-            || (self.dir == Direction::DOWN && new_dir == Direction::UP)
-            || (self.dir == Direction::RIGHT && new_dir == Direction::LEFT)
-        {
-            return;
+        match new_dir {
+            Direction::UP => {
+                if *self.snake.front().unwrap() == ((self.head.0 + SIZE - 1) % SIZE, self.head.1) {
+                    return;
+                }
+            }
+            Direction::DOWN => {
+                if *self.snake.front().unwrap() == ((self.head.0 + SIZE + 1) % SIZE, self.head.1) {
+                    return;
+                }
+            }
+            Direction::LEFT => {
+                if *self.snake.front().unwrap() == (self.head.0, (self.head.1 + SIZE - 1) % SIZE) {
+                    return;
+                }
+            }
+            Direction::RIGHT => {
+                if *self.snake.front().unwrap() == (self.head.0, (self.head.1 + SIZE + 1) % SIZE) {
+                    return;
+                }
+            }
         }
         self.dir = new_dir;
     }
     fn move_snake(&mut self) -> Option<()> {
+        self.moves.push(self.head.clone());
+        self.snake.push_front(self.head.clone());
         match &self.dir {
             Direction::UP => self.head.0 = (self.head.0 + SIZE - 1) % SIZE,
             Direction::DOWN => self.head.0 = (self.head.0 + SIZE + 1) % SIZE,
@@ -173,8 +190,6 @@ impl Snake {
             self.snake.push_front(self.head.clone());
             None
         } else {
-            self.moves.push(self.head.clone());
-            self.snake.push_front(self.head.clone());
             Some(())
         }
     }
@@ -184,7 +199,7 @@ impl Snake {
     }
 
     fn draw_snake(&self) {
-        for p in self.snake.iter().skip(1) {
+        for p in self.snake.iter() {
             draw_rectangle(
                 OFFSET_X + CELL * p.1 as f32,
                 OFFSET_Y + CELL * p.0 as f32,
@@ -258,15 +273,69 @@ fn eat_fruit(snake: &mut Snake, fruit: &mut Fruit) {
     }
 }
 
-async fn main_menu() -> String {
+async fn highscore_menu() {
+    let mut scores: ListOfScores = ListOfScores {
+        scores_list: Vec::new(),
+    };
+    match scores.load_scores() {
+        Ok(()) => {}
+        Err(e) => println!("Error loading {}", e),
+    }
+    let grid: Vec<Line> = build_grid();
+    let mut pos: f32 = 0.0;
+    let mut e_pressed: bool;
+    if is_key_down(KeyCode::Enter) {
+        e_pressed = true;
+    } else {
+        e_pressed = false;
+    }
+    clear_input_queue();
+    loop {
+        clear_background(BLACK);
+        draw_grid(&grid);
+        scores.draw_highscore();
+        draw_text("Exit", OFFSET_X + 120.0, OFFSET_Y + 570.0, 80.0, RED);
+        draw_circle(OFFSET_X + 80.0, OFFSET_Y + 100.0 + pos, 15.0, RED);
+        if is_key_released(KeyCode::Enter) {
+            e_pressed = false;
+        }
+        if is_key_pressed(KeyCode::Down) {
+            pos += 90.0;
+            if pos > 450.0 {
+                pos = 0.0;
+            }
+        } else if is_key_pressed(KeyCode::Up) {
+            pos -= 90.0;
+            if pos < 0.0 {
+                pos = 450.0;
+            }
+        } else if is_key_pressed(KeyCode::Enter) && !e_pressed {
+            let n = (pos / 90.0) as usize;
+            if n == 5 {
+                return;
+            }
+            println!("{}", n);
+        }
+
+        next_frame().await
+    }
+}
+
+async fn main_menu() -> Option<String> {
     let mut new_name = String::new();
     let grid: Vec<Line> = build_grid();
-    let mut active: bool = true;
-
+    let mut active: u8 = 0;
+    let mut e_pressed: bool;
+    if is_key_down(KeyCode::Enter) {
+        e_pressed = true;
+    } else {
+        e_pressed = false;
+    }
+    clear_input_queue();
     let box_width = 720.0 - 2.0 * OFFSET_X - 200.0;
-    let box_hight = 720.0 - 2.0 * OFFSET_X - 500.0;
+    let box_hight = 720.0 - 2.0 * OFFSET_X - 520.0;
     let box_x = OFFSET_X + 100.0;
-    let box_y = OFFSET_Y + 150.0;
+    let box_y = OFFSET_Y + 100.0;
     loop {
         clear_background(BLACK);
         draw_grid(&grid);
@@ -278,28 +347,40 @@ async fn main_menu() -> String {
                 720.0 - 2.0 * OFFSET_X - 100.0,
                 DARKGRAY,
             );
-            if active {
-                draw_rectangle(box_x, box_y, box_width, box_hight, DARKGREEN);
-                draw_rectangle(box_x, box_y + 200.0, box_width, box_hight, DARKBLUE);
-            } else {
-                draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
-                draw_rectangle(box_x, box_y + 200.0, box_width, box_hight, DARKGREEN);
+            match active {
+                0 => {
+                    draw_rectangle(box_x, box_y, box_width, box_hight, DARKGREEN);
+                    draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKBLUE);
+                    draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKBLUE);
+                }
+                1 => {
+                    draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
+                    draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKGREEN);
+                    draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKBLUE);
+                }
+                _ => {
+                    draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
+                    draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKBLUE);
+                    draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKGREEN);
+                }
             }
         }
 
-        if let Some(key) = get_char_pressed() {
-            if key.is_alphabetic() && new_name.len() < 11 {
-                new_name.push(key);
+        if active == 0 {
+            if let Some(key) = get_char_pressed() {
+                if key.is_alphabetic() && new_name.len() < 11 {
+                    new_name.push(key);
+                }
             }
-        }
-        if is_key_pressed(KeyCode::Backspace) {
-            new_name.pop();
+            if is_key_pressed(KeyCode::Backspace) {
+                new_name.pop();
+            }
         }
         if new_name.is_empty() {
             draw_text(
                 "Name",
                 OFFSET_X + 300.0 - 4.0 * 15.0,
-                OFFSET_Y + 240.0,
+                OFFSET_Y + 190.0,
                 80.0,
                 RED,
             );
@@ -307,32 +388,47 @@ async fn main_menu() -> String {
             draw_text(
                 &new_name,
                 OFFSET_X + 300.0 - new_name.len() as f32 * 15.0,
-                OFFSET_Y + 240.0,
+                OFFSET_Y + 180.0,
                 80.0,
                 RED,
             );
         }
 
-        draw_text("Highscores", OFFSET_X + 150.0, OFFSET_Y + 440.0, 80.0, RED);
-
-        if is_key_pressed(KeyCode::Enter) {
-            if active {
-                break;
-            } else {
-                println!("highscores");
+        draw_text("Highscores", OFFSET_X + 150.0, OFFSET_Y + 330.0, 80.0, RED);
+        draw_text(
+            "Quit",
+            OFFSET_X + 300.0 - 4.0 * 15.0,
+            OFFSET_Y + 480.0,
+            80.0,
+            RED,
+        );
+        if is_key_released(KeyCode::Enter) {
+            e_pressed = false;
+        }
+        if is_key_pressed(KeyCode::Enter) && !e_pressed {
+            match active {
+                0 => return Some(new_name),
+                1 => highscore_menu().await,
+                _ => return None,
             }
         } else if is_key_pressed(KeyCode::Escape) {
             break;
-        } else if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::Down) {
-            active = !active;
+        } else if is_key_pressed(KeyCode::Up) {
+            active = (active + 3 - 1) % 3;
+        } else if is_key_pressed(KeyCode::Down) {
+            active = (active + 1 + 3) % 3;
         }
         next_frame().await
     }
-    new_name
+    None
 }
 
-async fn new_game() -> (Snake, Fruit) {
-    let new_name: String = main_menu().await;
+async fn new_game() -> Option<(Snake, Fruit)> {
+    let new_name: String;
+    match main_menu().await {
+        Some(x) => new_name = x,
+        None => return None,
+    }
     let fruit: Fruit = Fruit {
         pos: (10, 16),
         draw_pos: (OFFSET_X + CELL * 16.0, OFFSET_Y + CELL * 10.0),
@@ -341,13 +437,13 @@ async fn new_game() -> (Snake, Fruit) {
 
     let snake: Snake = Snake {
         name: new_name,
-        snake: VecDeque::from(vec![(28, 16), (29, 16), (30, 16)]),
+        snake: VecDeque::from(vec![(29, 16), (30, 16)]),
         head: (28, 16),
         dir: Direction::UP,
         pts: 0,
         moves: Vec::new(),
     };
-    (snake, fruit)
+    Some((snake, fruit))
 }
 
 #[macroquad::main("Snake")]
@@ -356,7 +452,7 @@ async fn main() {
     let time = 0.1;
     let mut last = get_time();
 
-    let mut start: bool = true;
+    let mut start: bool = false;
     let mut pause: bool = false;
     let mut highscore: bool = false;
 
@@ -364,17 +460,21 @@ async fn main() {
         scores_list: Vec::new(),
     };
     match scores.load_scores() {
-        Ok(()) => println!("Onnistu"),
+        Ok(()) => println!("Loaded scores!"),
         Err(e) => println!("Error loading {}", e),
     }
     let mut fruit: Fruit;
     let mut snake: Snake;
-    (snake, fruit) = new_game().await;
+    match new_game().await {
+        Some(x) => (snake, fruit) = x,
+        None => return,
+    }
 
     let grid: Vec<Line> = build_grid();
 
     loop {
         clear_background(BLACK);
+        clear_input_queue();
         draw_grid(&grid);
         let txt = format!("Points: {}", snake.pts);
         draw_text(&txt, 270.0, 40.0, 50.0, BLUE);
@@ -384,7 +484,10 @@ async fn main() {
         if start {
             if is_key_pressed(KeyCode::Enter) {
                 start = false;
-                (snake, fruit) = new_game().await;
+                match new_game().await {
+                    Some(x) => (snake, fruit) = x,
+                    None => return,
+                }
             }
         } else if is_key_down(KeyCode::Tab) {
             highscore = true;
@@ -434,7 +537,6 @@ async fn main() {
         } else if highscore {
             scores.draw_highscore();
         }
-
         next_frame().await
     }
 }
