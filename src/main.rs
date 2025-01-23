@@ -7,7 +7,7 @@ const SIZE: usize = 32;
 const CELL: f32 = 20.0;
 const OFFSET_Y: f32 = 60.0;
 const OFFSET_X: f32 = 40.0;
-const TIME: f64 = 0.1;
+const TIME: f64 = 0.15;
 type Point = (usize, usize);
 type DrawPoint = (f32, f32);
 
@@ -44,39 +44,6 @@ impl ListOfScores {
         self.sort_scores();
         self.save_scores().unwrap();
     }
-    fn reset_scores_list(&mut self) {
-        let tom: Score = Score {
-            name: "Tom".to_string(),
-            points: 250,
-            moves: Vec::new(),
-            fruits: Vec::new(),
-        };
-        let tim: Score = Score {
-            name: "Tim".to_string(),
-            points: 200,
-            moves: Vec::new(),
-            fruits: Vec::new(),
-        };
-        let jim: Score = Score {
-            name: "Jim".to_string(),
-            points: 150,
-            moves: Vec::new(),
-            fruits: Vec::new(),
-        };
-        let kim: Score = Score {
-            name: "Kim".to_string(),
-            points: 50,
-            moves: Vec::new(),
-            fruits: Vec::new(),
-        };
-        let dim: Score = Score {
-            name: "Dim".to_string(),
-            points: 10,
-            moves: Vec::new(),
-            fruits: Vec::new(),
-        };
-        self.scores_list = vec![tom, tim, jim, kim, dim];
-    }
 
     fn draw_highscore(&self) {
         draw_rectangle(
@@ -87,11 +54,17 @@ impl ListOfScores {
             DARKGRAY,
         );
 
-        let text_start = OFFSET_X + 120.0;
+        let text_start = OFFSET_X + 110.0;
         let mut text_line = OFFSET_Y + 120.0;
         for score in &self.scores_list {
-            let txt = format!("{}    {}", score.name, score.points);
-            draw_text(&txt, text_start, text_line, 80.0, RED);
+            let mut txt: String = score.name.to_string();
+            txt.push_str(
+                &(std::iter::repeat(" ")
+                    .take(12 - score.name.len())
+                    .collect::<String>()),
+            );
+            txt.push_str(&score.points.to_string());
+            draw_text(&txt, text_start, text_line, 60.0, RED);
             text_line += 90.0;
         }
     }
@@ -107,14 +80,9 @@ impl ListOfScores {
     }
 
     fn load_scores(&mut self) -> std::io::Result<()> {
-        if !std::path::Path::new("Highscores.json").exists() {
-            self.reset_scores_list();
-            self.save_scores()?;
-        } else {
-            let file = std::fs::File::open("Highscores.json")?;
-            let sco: Vec<Score> = serde_json::from_reader(&file)?;
-            self.scores_list = sco;
-        }
+        let file = std::fs::File::open("Highscores.json")?;
+        let sco: Vec<Score> = serde_json::from_reader(&file)?;
+        self.scores_list = sco;
         Ok(())
     }
 }
@@ -286,18 +254,36 @@ fn eat_fruit(snake: &mut Snake, fruit: &mut Fruit) {
 async fn replay(sco: &Score) {
     let mut last = get_time();
     let grid: Vec<Line> = build_grid();
+
     let mut fru: std::iter::Peekable<std::slice::Iter<'_, Point>> = sco.fruits.iter().peekable();
     let mut mov: std::iter::Peekable<std::slice::Iter<'_, Point>> = sco.moves.iter().peekable();
     let mut sna: VecDeque<Point> = VecDeque::from(vec![(28, 16), (29, 16), (30, 16)]);
 
-    while mov.peek().is_some() {
+    let mut pause: bool = true;
+    let mut ended: bool = false;
+
+    let txt_name = sco.name.to_string();
+    let txt_points = sco.points.to_string();
+    loop {
         clear_background(BLACK);
         draw_grid(&grid);
 
         if is_key_pressed(KeyCode::Escape) {
             return;
+        } else if is_key_pressed(KeyCode::Enter) {
+            pause = !pause;
         }
 
+        draw_text(&txt_name, 180.0, 40.0, 50.0, BLUE);
+        draw_text(&txt_points, 450.0, 40.0, 50.0, BLUE);
+
+        draw_rectangle(
+            OFFSET_X + CELL * sna[0].1 as f32,
+            OFFSET_Y + CELL * sna[0].0 as f32,
+            CELL,
+            CELL,
+            GREEN,
+        );
         for p in 1..sna.len() {
             draw_rectangle(
                 OFFSET_X + CELL * sna[p].1 as f32,
@@ -308,13 +294,6 @@ async fn replay(sco: &Score) {
             );
         }
         draw_rectangle(
-            OFFSET_X + CELL * sna[0].1 as f32,
-            OFFSET_Y + CELL * sna[0].0 as f32,
-            CELL,
-            CELL,
-            GREEN,
-        );
-        draw_rectangle(
             OFFSET_X + fru.peek().unwrap().1 as f32 * CELL,
             OFFSET_Y + fru.peek().unwrap().0 as f32 * CELL,
             CELL,
@@ -322,7 +301,16 @@ async fn replay(sco: &Score) {
             RED,
         );
 
-        if get_time() - last > TIME {
+        if mov.peek().is_none() {
+            ended = true;
+        }
+
+        if ended {
+            draw_text("Replay ended!", 220.0, 300.0, 50.0, WHITE);
+            draw_text("Press Esc to return.", 150.0, 360.0, 50.0, WHITE);
+        } else if pause {
+            draw_pause();
+        } else if get_time() - last > TIME {
             last = get_time();
 
             if mov.peek() == fru.peek() {
@@ -344,8 +332,10 @@ async fn highscore_menu() {
         Ok(()) => {}
         Err(e) => println!("Error loading {}", e),
     }
+
     let grid: Vec<Line> = build_grid();
     let mut pos: f32 = 0.0;
+
     let mut e_pressed: bool;
     if is_key_down(KeyCode::Enter) {
         e_pressed = true;
@@ -357,8 +347,9 @@ async fn highscore_menu() {
         clear_background(BLACK);
         draw_grid(&grid);
         scores.draw_highscore();
-        draw_text("Return", OFFSET_X + 120.0, OFFSET_Y + 570.0, 80.0, RED);
-        draw_circle(OFFSET_X + 80.0, OFFSET_Y + 100.0 + pos, 15.0, RED);
+        draw_text("Return", OFFSET_X + 110.0, OFFSET_Y + 570.0, 60.0, RED);
+        draw_circle(OFFSET_X + 80.0, OFFSET_Y + 100.0 + pos, 12.0, RED);
+
         if is_key_released(KeyCode::Enter) {
             e_pressed = false;
         }
@@ -372,6 +363,8 @@ async fn highscore_menu() {
             if pos < 0.0 {
                 pos = 450.0;
             }
+        } else if is_key_pressed(KeyCode::Escape) {
+            return;
         } else if is_key_pressed(KeyCode::Enter) && !e_pressed {
             let n = (pos / 90.0) as usize;
             if n == 5 {
@@ -379,24 +372,23 @@ async fn highscore_menu() {
             } else {
                 replay(&scores.scores_list[n]).await;
             }
-            println!("{}", n);
         }
-
         next_frame().await
     }
 }
 
 async fn main_menu() -> Option<String> {
     let mut new_name = String::new();
-    let grid: Vec<Line> = build_grid();
     let mut active: u8 = 0;
+
     let mut e_pressed: bool;
     if is_key_down(KeyCode::Enter) {
         e_pressed = true;
     } else {
         e_pressed = false;
     }
-    clear_input_queue();
+
+    let grid: Vec<Line> = build_grid();
     let box_width = 720.0 - 2.0 * OFFSET_X - 200.0;
     let box_hight = 720.0 - 2.0 * OFFSET_X - 520.0;
     let box_x = OFFSET_X + 100.0;
@@ -404,30 +396,30 @@ async fn main_menu() -> Option<String> {
     loop {
         clear_background(BLACK);
         draw_grid(&grid);
-        {
-            draw_rectangle(
-                OFFSET_X + 50.0,
-                OFFSET_Y + 50.0,
-                720.0 - 2.0 * OFFSET_X - 100.0,
-                720.0 - 2.0 * OFFSET_X - 100.0,
-                DARKGRAY,
-            );
-            match active {
-                0 => {
-                    draw_rectangle(box_x, box_y, box_width, box_hight, DARKGREEN);
-                    draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKBLUE);
-                    draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKBLUE);
-                }
-                1 => {
-                    draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
-                    draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKGREEN);
-                    draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKBLUE);
-                }
-                _ => {
-                    draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
-                    draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKBLUE);
-                    draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKGREEN);
-                }
+
+        draw_rectangle(
+            OFFSET_X + 50.0,
+            OFFSET_Y + 50.0,
+            720.0 - 2.0 * OFFSET_X - 100.0,
+            720.0 - 2.0 * OFFSET_X - 100.0,
+            DARKGRAY,
+        );
+
+        match active {
+            0 => {
+                draw_rectangle(box_x, box_y, box_width, box_hight, DARKGREEN);
+                draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKBLUE);
+                draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKBLUE);
+            }
+            1 => {
+                draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
+                draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKGREEN);
+                draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKBLUE);
+            }
+            _ => {
+                draw_rectangle(box_x, box_y, box_width, box_hight, DARKBLUE);
+                draw_rectangle(box_x, box_y + 150.0, box_width, box_hight, DARKBLUE);
+                draw_rectangle(box_x, box_y + 300.0, box_width, box_hight, DARKGREEN);
             }
         }
 
@@ -441,6 +433,7 @@ async fn main_menu() -> Option<String> {
                 new_name.pop();
             }
         }
+
         if new_name.is_empty() {
             draw_text(
                 "Name",
@@ -467,9 +460,11 @@ async fn main_menu() -> Option<String> {
             80.0,
             RED,
         );
+
         if is_key_released(KeyCode::Enter) {
             e_pressed = false;
         }
+
         if is_key_pressed(KeyCode::Enter) && !e_pressed {
             match active {
                 0 => return Some(new_name),
@@ -480,8 +475,10 @@ async fn main_menu() -> Option<String> {
             break;
         } else if is_key_pressed(KeyCode::Up) {
             active = (active + 3 - 1) % 3;
+            clear_input_queue();
         } else if is_key_pressed(KeyCode::Down) {
             active = (active + 1 + 3) % 3;
+            clear_input_queue();
         }
         next_frame().await
     }
@@ -490,10 +487,12 @@ async fn main_menu() -> Option<String> {
 
 async fn new_game() -> Option<(Snake, Fruit)> {
     let new_name: String;
+
     match main_menu().await {
         Some(x) => new_name = x,
         None => return None,
     }
+
     let fruit: Fruit = Fruit {
         pos: (10, 16),
         draw_pos: (OFFSET_X + CELL * 16.0, OFFSET_Y + CELL * 10.0),
@@ -518,7 +517,7 @@ async fn main() {
     let mut last = get_time();
 
     let mut start: bool = false;
-    let mut pause: bool = false;
+    let mut pause: bool = true;
     let mut highscore: bool = false;
 
     let mut scores: ListOfScores = ListOfScores {
@@ -558,14 +557,11 @@ async fn main() {
             highscore = true;
         } else if is_key_released(KeyCode::Tab) {
             highscore = false;
-        } else if pause {
-            if is_key_pressed(KeyCode::Enter) {
-                pause = false;
-            }
-        } else {
-            if is_key_pressed(KeyCode::Escape) {
-                pause = true;
-            }
+        } else if is_key_pressed(KeyCode::Enter) {
+            pause = !pause;
+        } else if is_key_pressed(KeyCode::Escape) {
+            start = true;
+        } else if !pause && !start {
             if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
                 snake.turn_snake(Direction::UP);
             } else if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
@@ -595,12 +591,13 @@ async fn main() {
                 }
             }
         }
+
         if start {
             draw_start();
-        } else if pause {
-            draw_pause();
         } else if highscore {
             scores.draw_highscore();
+        } else if pause {
+            draw_pause();
         }
         next_frame().await
     }
