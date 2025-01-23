@@ -7,6 +7,7 @@ const SIZE: usize = 32;
 const CELL: f32 = 20.0;
 const OFFSET_Y: f32 = 60.0;
 const OFFSET_X: f32 = 40.0;
+const TIME: f64 = 0.1;
 type Point = (usize, usize);
 type DrawPoint = (f32, f32);
 
@@ -22,6 +23,7 @@ struct Score {
     name: String,
     points: usize,
     moves: Vec<Point>,
+    fruits: Vec<Point>,
 }
 #[derive(Serialize, Deserialize)]
 struct ListOfScores {
@@ -47,26 +49,31 @@ impl ListOfScores {
             name: "Tom".to_string(),
             points: 250,
             moves: Vec::new(),
+            fruits: Vec::new(),
         };
         let tim: Score = Score {
             name: "Tim".to_string(),
             points: 200,
             moves: Vec::new(),
+            fruits: Vec::new(),
         };
         let jim: Score = Score {
             name: "Jim".to_string(),
             points: 150,
             moves: Vec::new(),
+            fruits: Vec::new(),
         };
         let kim: Score = Score {
             name: "Kim".to_string(),
             points: 50,
             moves: Vec::new(),
+            fruits: Vec::new(),
         };
         let dim: Score = Score {
             name: "Dim".to_string(),
             points: 10,
             moves: Vec::new(),
+            fruits: Vec::new(),
         };
         self.scores_list = vec![tom, tim, jim, kim, dim];
     }
@@ -141,6 +148,7 @@ struct Snake {
     dir: Direction,
     pts: usize,
     moves: Vec<Point>,
+    fruits: Vec<Point>,
 }
 
 impl Snake {
@@ -149,6 +157,7 @@ impl Snake {
             name: self.name.clone(),
             points: self.pts.clone(),
             moves: self.moves.clone(),
+            fruits: self.fruits.clone(),
         }
     }
     fn turn_snake(&mut self, new_dir: Direction) {
@@ -253,6 +262,7 @@ fn draw_pause() {
 
 fn eat_fruit(snake: &mut Snake, fruit: &mut Fruit) {
     snake.add_points(&fruit.pts);
+    snake.fruits.push(fruit.pos.clone());
 
     let range: Vec<_> = (0..SIZE).collect();
     'nxt_fruit: loop {
@@ -270,6 +280,59 @@ fn eat_fruit(snake: &mut Snake, fruit: &mut Fruit) {
     }
     if snake.pts >= 20 * fruit.pts {
         fruit.change_points(fruit.pts + 5);
+    }
+}
+
+async fn replay(sco: &Score) {
+    let mut last = get_time();
+    let grid: Vec<Line> = build_grid();
+    let mut fru: std::iter::Peekable<std::slice::Iter<'_, Point>> = sco.fruits.iter().peekable();
+    let mut mov: std::iter::Peekable<std::slice::Iter<'_, Point>> = sco.moves.iter().peekable();
+    let mut sna: VecDeque<Point> = VecDeque::from(vec![(28, 16), (29, 16), (30, 16)]);
+
+    while mov.peek().is_some() {
+        clear_background(BLACK);
+        draw_grid(&grid);
+
+        if is_key_pressed(KeyCode::Escape) {
+            return;
+        }
+
+        for p in 1..sna.len() {
+            draw_rectangle(
+                OFFSET_X + CELL * sna[p].1 as f32,
+                OFFSET_Y + CELL * sna[p].0 as f32,
+                CELL,
+                CELL,
+                DARKGREEN,
+            );
+        }
+        draw_rectangle(
+            OFFSET_X + CELL * sna[0].1 as f32,
+            OFFSET_Y + CELL * sna[0].0 as f32,
+            CELL,
+            CELL,
+            GREEN,
+        );
+        draw_rectangle(
+            OFFSET_X + fru.peek().unwrap().1 as f32 * CELL,
+            OFFSET_Y + fru.peek().unwrap().0 as f32 * CELL,
+            CELL,
+            CELL,
+            RED,
+        );
+
+        if get_time() - last > TIME {
+            last = get_time();
+
+            if mov.peek() == fru.peek() {
+                fru.next();
+            } else {
+                sna.pop_back();
+            }
+            sna.push_front(*mov.next().unwrap());
+        }
+        next_frame().await
     }
 }
 
@@ -294,7 +357,7 @@ async fn highscore_menu() {
         clear_background(BLACK);
         draw_grid(&grid);
         scores.draw_highscore();
-        draw_text("Exit", OFFSET_X + 120.0, OFFSET_Y + 570.0, 80.0, RED);
+        draw_text("Return", OFFSET_X + 120.0, OFFSET_Y + 570.0, 80.0, RED);
         draw_circle(OFFSET_X + 80.0, OFFSET_Y + 100.0 + pos, 15.0, RED);
         if is_key_released(KeyCode::Enter) {
             e_pressed = false;
@@ -313,6 +376,8 @@ async fn highscore_menu() {
             let n = (pos / 90.0) as usize;
             if n == 5 {
                 return;
+            } else {
+                replay(&scores.scores_list[n]).await;
             }
             println!("{}", n);
         }
@@ -380,7 +445,7 @@ async fn main_menu() -> Option<String> {
             draw_text(
                 "Name",
                 OFFSET_X + 300.0 - 4.0 * 15.0,
-                OFFSET_Y + 190.0,
+                OFFSET_Y + 180.0,
                 80.0,
                 RED,
             );
@@ -442,6 +507,7 @@ async fn new_game() -> Option<(Snake, Fruit)> {
         dir: Direction::UP,
         pts: 0,
         moves: Vec::new(),
+        fruits: Vec::new(),
     };
     Some((snake, fruit))
 }
@@ -449,7 +515,6 @@ async fn new_game() -> Option<(Snake, Fruit)> {
 #[macroquad::main("Snake")]
 async fn main() {
     request_new_screen_size(720.0, 720.0);
-    let time = 0.1;
     let mut last = get_time();
 
     let mut start: bool = false;
@@ -511,11 +576,12 @@ async fn main() {
                 snake.turn_snake(Direction::DOWN);
             }
 
-            if get_time() - last > time {
+            if get_time() - last > TIME {
                 last = get_time();
                 match snake.move_snake() {
                     None => {
                         println!("Game ended. Your points were {}.", snake.pts);
+                        snake.fruits.push(fruit.pos);
                         scores.new_score(&snake);
                         start = true;
                     }
@@ -529,7 +595,6 @@ async fn main() {
                 }
             }
         }
-
         if start {
             draw_start();
         } else if pause {
